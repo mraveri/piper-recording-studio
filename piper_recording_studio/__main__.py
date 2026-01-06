@@ -1,3 +1,5 @@
+"""Run the Piper recording studio web app and manage recording outputs."""
+
 import argparse
 import asyncio
 import csv
@@ -65,6 +67,7 @@ def main() -> None:
 
     prompts_dirs = [Path(p) for p in args.prompts]
     output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
     css_dir = _DIR / "css"
     js_dir = _DIR / "js"
     img_dir = _DIR / "img"
@@ -99,11 +102,16 @@ def main() -> None:
 
         if args.multi_user:
             user_id = request.args.get("userId")
-            audio_dir = output_dir / f"user_{user_id}"
-            user_dir = audio_dir / language
-            if not user_dir.is_dir():
-                _LOGGER.warning("No user/language directory: %s", user_dir)
+            user_dir, _language_dir = ensure_user_language_dir(
+                output_dir,
+                user_id,
+                language,
+            )
+            if user_dir is None:
                 user_id = None
+                audio_dir = output_dir
+            else:
+                audio_dir = user_dir
         else:
             user_id = None
             audio_dir = output_dir
@@ -148,10 +156,13 @@ def main() -> None:
             suffix = ".wav"
 
         if args.multi_user:
-            user_id = form["userId"]
-            user_dir = output_dir / f"user_{user_id}"
-            if not user_dir.is_dir():
-                _LOGGER.warning("No user/language directory: %s", user_dir)
+            user_id = form.get("userId")
+            user_dir, _language_dir = ensure_user_language_dir(
+                output_dir,
+                user_id,
+                language,
+            )
+            if user_dir is None:
                 raise ValueError("Invalid login code")
 
             audio_dir = user_dir
@@ -200,10 +211,13 @@ def main() -> None:
         prompt_text = form["text"]
 
         if args.multi_user:
-            user_id = form["userId"]
-            user_dir = output_dir / f"user_{user_id}"
-            if not user_dir.is_dir():
-                _LOGGER.warning("No user/language directory: %s", user_dir)
+            user_id = form.get("userId")
+            user_dir, _language_dir = ensure_user_language_dir(
+                output_dir,
+                user_id,
+                language,
+            )
+            if user_dir is None:
                 raise ValueError("Invalid login code")
 
             audio_dir = user_dir
@@ -243,14 +257,16 @@ def main() -> None:
 
         if args.multi_user:
             user_id = request.args.get("userId")
-            audio_dir = output_dir / f"user_{user_id}"
-            user_dir = audio_dir / language
-            if not user_dir.is_dir():
-                _LOGGER.warning("No user/language directory: %s", user_dir)
+            user_dir, _language_dir = ensure_user_language_dir(
+                output_dir,
+                user_id,
+                language,
+            )
+            if user_dir is None:
                 raise RuntimeError("Invalid login code")
         else:
             user_id = None
-            audio_dir = output_dir
+            user_dir = output_dir
 
         return await render_template(
             "upload.html",
@@ -267,18 +283,21 @@ def main() -> None:
 
         if args.multi_user:
             user_id = form.get("userId")
-            audio_dir = output_dir / f"user_{user_id}"
-            user_dir = audio_dir / language
-            if not user_dir.is_dir():
-                _LOGGER.warning("No user/language directory: %s", user_dir)
+            user_dir, language_dir = ensure_user_language_dir(
+                output_dir,
+                user_id,
+                language,
+            )
+            if user_dir is None:
                 raise RuntimeError("Invalid login code")
         else:
             user_id = None
-            audio_dir = output_dir
+            user_dir = output_dir
+            language_dir = user_dir / language
 
         files = await request.files
         dataset_file = files["dataset"]
-        upload_path = user_dir / "_uploads" / Path(dataset_file.filename).name
+        upload_path = language_dir / "_uploads" / Path(dataset_file.filename).name
         upload_path.parent.mkdir(parents=True, exist_ok=True)
         await dataset_file.save(upload_path)
         _LOGGER.debug("Saved dataset to %s", upload_path)
@@ -319,6 +338,25 @@ def main() -> None:
 
 
 # -----------------------------------------------------------------------------
+
+def ensure_user_language_dir(output_dir, user_id, language):
+    """Ensure a user's language directory exists under the output root.
+
+    :param output_dir: base output path for recordings
+    :param user_id: login code string
+    :param language: language code string
+    :returns: tuple ``(user_dir, language_dir)`` or ``(None, None)`` when ``user_id`` is missing
+    """
+    if not user_id:
+        _LOGGER.warning("Missing login code")
+        return None, None
+
+    user_dir = output_dir / f"user_{user_id}"
+    language_dir = user_dir / language
+    if not language_dir.is_dir():
+        _LOGGER.info("Creating user/language directory: %s", language_dir)
+        language_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir, language_dir
 
 
 def load_prompts(
