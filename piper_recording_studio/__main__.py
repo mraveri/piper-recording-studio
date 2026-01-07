@@ -43,12 +43,10 @@ def main() -> None:
         "--prompts",
         help="Path to prompts directory",
         action="append",
-        default=[_DIR.parent / "prompts"],
     )
     parser.add_argument(
         "--output",
         help="Path to output directory",
-        default=_DIR.parent / "output",
     )
     #
     parser.add_argument(
@@ -74,7 +72,7 @@ def main() -> None:
     webfonts_dir = _DIR / "webfonts"
 
     prompts, languages = load_prompts(prompts_dirs)
-
+    
     app = Quart("piper", template_folder=str(_DIR / "templates"))
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 mb
@@ -89,6 +87,7 @@ def main() -> None:
             languages=sorted(languages.items()),
             multi_user=args.multi_user,
             cc0=args.cc0,
+            user_error=None,
         )
 
     @app.route("/done.html")
@@ -102,16 +101,26 @@ def main() -> None:
 
         if args.multi_user:
             user_id = request.args.get("userId")
-            user_dir, _language_dir = ensure_user_language_dir(
+            user_dir, language_dir, exists = locate_user_language_dir(
                 output_dir,
                 user_id,
                 language,
             )
-            if user_dir is None:
-                user_id = None
-                audio_dir = output_dir
-            else:
-                audio_dir = user_dir
+            if not user_dir.is_dir():
+                return await render_template(
+                    "index.html",
+                    languages=sorted(languages.items()),
+                    multi_user=args.multi_user,
+                    cc0=args.cc0,
+                    user_error=f"Recording folder for login code '{user_id}' does not exist. Please create it first.",
+                )
+            if not exists:
+                user_dir, language_dir = create_user_language_dir(
+                    output_dir,
+                    user_id,
+                    language,
+                )
+            audio_dir = user_dir
         else:
             user_id = None
             audio_dir = output_dir
@@ -124,6 +133,8 @@ def main() -> None:
         if next_prompt is None:
             return await render_template("done.html")
 
+        emotion_label = getattr(next_prompt, "emotion_label", None)
+        emotion_intensity = getattr(next_prompt, "emotion_intensity", None)
         complete_percent = 100 * (num_complete / num_items if num_items > 0 else 1)
         return await render_template(
             "record.html",
@@ -131,6 +142,8 @@ def main() -> None:
             prompt_group=next_prompt.group,
             prompt_id=next_prompt.id,
             text=next_prompt.text,
+            emotion_label=emotion_label,
+            emotion_intensity=emotion_intensity,
             num_complete=num_complete,
             num_items=num_items,
             complete_percent=complete_percent,
@@ -157,13 +170,19 @@ def main() -> None:
 
         if args.multi_user:
             user_id = form.get("userId")
-            user_dir, _language_dir = ensure_user_language_dir(
+            user_dir, language_dir, exists = locate_user_language_dir(
                 output_dir,
                 user_id,
                 language,
             )
-            if user_dir is None:
+            if not user_dir.is_dir():
                 raise ValueError("Invalid login code")
+            if not exists:
+                user_dir, language_dir = create_user_language_dir(
+                    output_dir,
+                    user_id,
+                    language,
+                )
 
             audio_dir = user_dir
         else:
@@ -188,6 +207,8 @@ def main() -> None:
         if next_prompt is None:
             return jsonify({"done": True})
 
+        emotion_label = getattr(next_prompt, "emotion_label", None)
+        emotion_intensity = getattr(next_prompt, "emotion_intensity", None)
         complete_percent = 100 * (num_complete / num_items if num_items > 0 else 1)
         return jsonify(
             {
@@ -195,6 +216,8 @@ def main() -> None:
                 "promptGroup": next_prompt.group,
                 "promptId": next_prompt.id,
                 "promptText": next_prompt.text,
+                "emotionLabel": emotion_label,
+                "emotionIntensity": emotion_intensity,
                 "numComplete": num_complete,
                 "numItems": num_items,
                 "completePercent": complete_percent,
@@ -212,14 +235,19 @@ def main() -> None:
 
         if args.multi_user:
             user_id = form.get("userId")
-            user_dir, _language_dir = ensure_user_language_dir(
+            user_dir, language_dir, exists = locate_user_language_dir(
                 output_dir,
                 user_id,
                 language,
             )
-            if user_dir is None:
+            if not user_dir.is_dir():
                 raise ValueError("Invalid login code")
-
+            if not exists:
+                user_dir, language_dir = create_user_language_dir(
+                    output_dir,
+                    user_id,
+                    language,
+                )
             audio_dir = user_dir
         else:
             audio_dir = output_dir
@@ -237,6 +265,8 @@ def main() -> None:
         if next_prompt is None:
             return jsonify({"done": True})
 
+        emotion_label = getattr(next_prompt, "emotion_label", None)
+        emotion_intensity = getattr(next_prompt, "emotion_intensity", None)
         complete_percent = 100 * (num_complete / num_items if num_items > 0 else 1)
         return jsonify(
             {
@@ -244,6 +274,8 @@ def main() -> None:
                 "promptGroup": next_prompt.group,
                 "promptId": next_prompt.id,
                 "promptText": next_prompt.text,
+                "emotionLabel": emotion_label,
+                "emotionIntensity": emotion_intensity,
                 "numComplete": num_complete,
                 "numItems": num_items,
                 "completePercent": complete_percent,
@@ -257,13 +289,19 @@ def main() -> None:
 
         if args.multi_user:
             user_id = request.args.get("userId")
-            user_dir, _language_dir = ensure_user_language_dir(
+            user_dir, language_dir, exists = locate_user_language_dir(
                 output_dir,
                 user_id,
                 language,
             )
-            if user_dir is None:
+            if not user_dir.is_dir():
                 raise RuntimeError("Invalid login code")
+            if not exists:
+                user_dir, language_dir = create_user_language_dir(
+                    output_dir,
+                    user_id,
+                    language,
+                )
         else:
             user_id = None
             user_dir = output_dir
@@ -283,13 +321,19 @@ def main() -> None:
 
         if args.multi_user:
             user_id = form.get("userId")
-            user_dir, language_dir = ensure_user_language_dir(
+            user_dir, language_dir, exists = locate_user_language_dir(
                 output_dir,
                 user_id,
                 language,
             )
-            if user_dir is None:
+            if not user_dir.is_dir():
                 raise RuntimeError("Invalid login code")
+            if not exists:
+                user_dir, language_dir = create_user_language_dir(
+                    output_dir,
+                    user_id,
+                    language,
+                )
         else:
             user_id = None
             user_dir = output_dir
@@ -303,6 +347,18 @@ def main() -> None:
         _LOGGER.debug("Saved dataset to %s", upload_path)
 
         return await render_template("done.html")
+
+    @app.route("/create_user_dir", methods=["POST"])
+    async def api_create_user_dir() -> Response:
+        if not args.multi_user:
+            raise RuntimeError("Multi-user mode is required for this operation")
+
+        form = await request.form
+        language = form["language"]
+        user_id = form.get("userId")
+        create_user_language_dir(output_dir, user_id, language)
+
+        return jsonify({"created": True})
 
     @app.errorhandler(Exception)
     async def handle_error(err) -> Tuple[str, int]:
@@ -339,23 +395,41 @@ def main() -> None:
 
 # -----------------------------------------------------------------------------
 
-def ensure_user_language_dir(output_dir, user_id, language):
-    """Ensure a user's language directory exists under the output root.
+def locate_user_language_dir(output_dir, user_id, language):
+    """Locate the user/language folder without mutating the filesystem.
 
     :param output_dir: base output path for recordings
     :param user_id: login code string
     :param language: language code string
-    :returns: tuple ``(user_dir, language_dir)`` or ``(None, None)`` when ``user_id`` is missing
+    :returns: tuple ``(user_dir, language_dir, exists)``
     """
-    if not user_id:
-        _LOGGER.warning("Missing login code")
-        return None, None
+    if not user_id or not str(user_id).strip():
+        _LOGGER.warning("Missing login code when locating user folder")
+        raise ValueError("Missing login code")
 
     user_dir = output_dir / f"user_{user_id}"
     language_dir = user_dir / language
-    if not language_dir.is_dir():
-        _LOGGER.info("Creating user/language directory: %s", language_dir)
-        language_dir.mkdir(parents=True, exist_ok=True)
+    exists = language_dir.is_dir()
+    if not exists:
+        _LOGGER.warning("User folder missing: %s", language_dir)
+    return user_dir, language_dir, exists
+
+
+def create_user_language_dir(output_dir, user_id, language):
+    """Create the directory tree for a user and language.
+
+    :param output_dir: base output path for recordings
+    :param user_id: login code string
+    :param language: language code string
+    :returns: tuple ``(user_dir, language_dir)``
+    """
+    user_dir, language_dir, _ = locate_user_language_dir(output_dir, user_id, language)
+    if user_dir is None or language_dir is None:
+        raise ValueError("Invalid user ID or language")
+    if not user_dir.is_dir():
+        raise ValueError("User folder does not exist")
+    _LOGGER.warning("Creating user directory %s", language_dir)
+    language_dir.mkdir(parents=True, exist_ok=True)
     return user_dir, language_dir
 
 
@@ -378,14 +452,32 @@ def load_prompts(
                 with open(prompt_path, "r", encoding="utf-8") as prompt_file:
                     reader = csv.reader(prompt_file, delimiter="\t")
                     for i, row in enumerate(reader):
+                        emotion_label = None
+                        emotion_intensity = None
                         if len(row) == 1:
                             prompt_id = str(i)
+                            prompt_text = row[0]
+                        elif len(row) == 2:
+                            prompt_id = row[0]
+                            prompt_text = row[1]
+                        elif len(row) == 3:
+                            prompt_id = row[0]
+                            prompt_text = row[1]
+                            emotion_label = row[2].strip() or None
                         else:
                             prompt_id = row[0]
+                            prompt_text = row[1]
+                            emotion_label = row[2].strip() or None
+                            emotion_intensity = row[3].strip() or None
 
-                        prompts[code].append(
-                            Prompt(group=prompt_group, id=prompt_id, text=row[-1])
+                        prompt = Prompt(
+                            group=prompt_group,
+                            id=prompt_id,
+                            text=prompt_text,
                         )
+                        prompt.emotion_label = emotion_label
+                        prompt.emotion_intensity = emotion_intensity
+                        prompts[code].append(prompt)
 
     return prompts, languages
 

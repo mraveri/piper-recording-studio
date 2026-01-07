@@ -32,12 +32,21 @@
                 </p>
                 {% endif %}
             </div>
-            {% if multi_user: %}
-            <div class="row-fluid">
-                <label for="userId" class="mr-2">Login code:</label>
-                <input id="userId" type="text" placeholder="login code">
+        {% if multi_user: %}
+        <div class="row-fluid">
+            <label for="userId" class="mr-2">Login code:</label>
+            <input id="userId" type="text" placeholder="login code">
+        </div>
+        {% endif %}
+        {% if user_error %}
+        <div class="row-fluid mt-2">
+            <div class="col">
+                <div class="alert alert-danger py-2 mb-0" role="alert">
+                    {{ user_error }}
+                </div>
             </div>
-            {% endif %}
+        </div>
+        {% endif %}
             <div class="row-fluid mt-3">
                 <select id="language">
                     <option value="" selected>Choose a language</option>

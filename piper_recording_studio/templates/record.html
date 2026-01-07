@@ -67,6 +67,18 @@
                         <textarea id="text" rows="3" class="form-control" readonly>{{ text }}</textarea>
                     </div>
                 </div>
+                <div class="control-group mt-3">
+                    <div class="controls row-fluid">
+                        <div id="emotionBox" class="alert alert-secondary mb-0" {% if not emotion_label %}hidden{% endif %}>
+                            <strong>Emotion:</strong>
+                            <span id="emotionLabel">{{ emotion_label }}</span>
+                            <span id="emotionIntensityWrap" {% if not emotion_intensity %}hidden{% endif %}>
+                                &middot; <strong>Intensity:</strong>
+                                <span id="emotionIntensity">{{ emotion_intensity }}</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
                 <div class="control-group mt-5">
                     <div class="controls row">
                         <div class="col-auto">
@@ -141,6 +153,32 @@
              q('#alert').textContent = text;
          }
 
+         function updateEmotion(label, intensity) {
+             let box = q('#emotionBox');
+             if (!box) {
+                 return;
+             }
+             if (!label) {
+                 box.hidden = true;
+                 return;
+             }
+             box.hidden = false;
+             q('#emotionLabel').textContent = label;
+
+             let wrap = q('#emotionIntensityWrap');
+             let value = q('#emotionIntensity');
+             if (!wrap || !value) {
+                 return;
+             }
+             if (intensity) {
+                 wrap.hidden = false;
+                 value.textContent = intensity;
+             } else {
+                 wrap.hidden = true;
+                 value.textContent = '';
+             }
+         }
+
          function stopRecording() {
              recording = false;
              recorder.stop();
@@ -197,6 +235,7 @@
                  q('#promptId').value = result.promptId;
                  q('#promptText').value = result.promptText;
                  q('#text').value = result.promptText;
+                 updateEmotion(result.emotionLabel, result.emotionIntensity);
 
                  q('#numComplete').textContent = result.numComplete;
                  q('#numItems').textContent = result.numItems;
